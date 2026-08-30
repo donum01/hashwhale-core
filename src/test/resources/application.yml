@@ -9,3 +9,8 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+
+app:
+  jwt:
+    # Base64 for a 32-byte test key; never use this value outside tests.
+    secret: MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=

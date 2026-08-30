@@ -1,7 +1,9 @@
 package com.hashwhale.core.controller;
 
 import com.hashwhale.core.dto.ApiErrorResponse;
+import com.hashwhale.core.service.EmailAlreadyRegisteredException;
 import com.hashwhale.core.service.InsufficientBalanceException;
+import com.hashwhale.core.service.InvalidCredentialsException;
 import com.hashwhale.core.service.LtvLimitExceededException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -16,6 +18,18 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    public ResponseEntity<ApiErrorResponse> handleEmailAlreadyRegistered(
+            EmailAlreadyRegisteredException exception, HttpServletRequest request) {
+        return errorResponse(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidCredentials(
+            InvalidCredentialsException exception, HttpServletRequest request) {
+        return errorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request);
+    }
 
     @ExceptionHandler({InsufficientBalanceException.class, LtvLimitExceededException.class})
     public ResponseEntity<ApiErrorResponse> handleBorrowValidationException(

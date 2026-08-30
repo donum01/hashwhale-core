@@ -24,3 +24,9 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+app:
+  jwt:
+    # Base64-encoded 256-bit (or stronger) key. Set this outside source control.
+    secret: ${JWT_SECRET}
+    expiration-ms: 86400000
