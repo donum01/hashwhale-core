@@ -4,7 +4,9 @@ import com.hashwhale.core.dto.ApiErrorResponse;
 import com.hashwhale.core.dto.CreateLoanRequest;
 import com.hashwhale.core.dto.LoanResponse;
 import com.hashwhale.core.entity.Loan;
+import com.hashwhale.core.entity.User;
 import com.hashwhale.core.service.BorrowService;
+import com.hashwhale.core.service.ForbiddenException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -18,6 +20,8 @@ import java.net.URI;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,11 +49,16 @@ public class BorrowController {
             @ApiResponse(
                     responseCode = "400",
                     description = "Invalid input, insufficient collateral, or LTV limit exceeded",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Authenticated user does not own the requested account",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     public ResponseEntity<LoanResponse> createLoan(
             @PathVariable @Positive Long userId,
             @Valid @RequestBody CreateLoanRequest request) {
+        verifyUserAccess(userId);
         Loan loan = borrowService.createLoan(
                 userId,
                 request.getCollateralAsset(),
@@ -73,10 +82,15 @@ public class BorrowController {
             @ApiResponse(
                     responseCode = "409",
                     description = "Loan cannot be repaid in its current state",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Authenticated user does not own the loan",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     public ResponseEntity<LoanResponse> repayLoan(@PathVariable @Positive Long loanId) {
-        return ResponseEntity.ok(toResponse(borrowService.repayLoan(loanId)));
+        User authenticatedUser = getAuthenticatedUser();
+        return ResponseEntity.ok(toResponse(borrowService.repayLoan(loanId, authenticatedUser.getId())));
     }
 
     @GetMapping("/{userId}/loans")
@@ -89,9 +103,14 @@ public class BorrowController {
             @ApiResponse(
                     responseCode = "400",
                     description = "Invalid user id or user not found",
+                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Authenticated user does not own the requested account",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     })
     public ResponseEntity<List<LoanResponse>> getLoansForUser(@PathVariable @Positive Long userId) {
+        verifyUserAccess(userId);
         List<LoanResponse> loans = borrowService.getLoansForUser(userId)
                 .stream()
                 .map(this::toResponse)
@@ -109,5 +128,21 @@ public class BorrowController {
                 loan.getInterestRateApr(),
                 loan.getStatus(),
                 loan.getCreatedAt());
+    }
+
+    private void verifyUserAccess(Long requestedUserId) {
+        User authenticatedUser = getAuthenticatedUser();
+        if (!authenticatedUser.getId().equals(requestedUserId)) {
+            throw new ForbiddenException(
+                    "You are not authorized to access borrow resources for user " + requestedUserId);
+        }
+    }
+
+    private User getAuthenticatedUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof User user)) {
+            throw new ForbiddenException("Authenticated user principal is unavailable");
+        }
+        return user;
     }
 }

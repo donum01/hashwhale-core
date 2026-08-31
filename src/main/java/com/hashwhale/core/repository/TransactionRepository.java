@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
+    List<Transaction> findByUserIdOrderByCreatedAtDescIdDesc(Long userId);
+
     List<Transaction> findByUserIdAndStatus(Long userId, TransactionStatus status);
 
     List<Transaction> findByUserIdAndType(Long userId, TransactionType type);

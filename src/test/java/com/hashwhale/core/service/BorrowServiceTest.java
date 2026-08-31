@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hashwhale.core.entity.Asset;
@@ -104,6 +105,19 @@ class BorrowServiceTest {
         verify(walletBalanceRepository, never()).save(walletBalance);
         verify(loanRepository, never()).save(org.mockito.ArgumentMatchers.any(Loan.class));
         verify(transactionRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void repayLoanRejectsNonOwnerBeforeChangingCollateralOrLoan() {
+        User owner = user(2L);
+        Loan loan = new Loan();
+        loan.setUser(owner);
+        when(loanRepository.findById(10L)).thenReturn(Optional.of(loan));
+
+        assertThrows(ForbiddenException.class, () -> borrowService.repayLoan(10L, 1L));
+
+        verifyNoInteractions(walletBalanceRepository, transactionRepository);
+        verify(loanRepository, never()).save(org.mockito.ArgumentMatchers.any(Loan.class));
     }
 
     private User user(Long id) {

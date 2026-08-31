@@ -96,8 +96,21 @@ public class BorrowService {
      */
     @Transactional
     public Loan repayLoan(Long loanId) {
+        return repayLoanInternal(loanId, null);
+    }
+
+    @Transactional
+    public Loan repayLoan(Long loanId, Long authenticatedUserId) {
+        validateRequired(authenticatedUserId, "Authenticated user id");
+        return repayLoanInternal(loanId, authenticatedUserId);
+    }
+
+    private Loan repayLoanInternal(Long loanId, Long authenticatedUserId) {
         Loan loan = loanRepository.findById(loanId)
                 .orElseThrow(() -> new IllegalArgumentException("Loan not found: " + loanId));
+        if (authenticatedUserId != null && !loan.getUser().getId().equals(authenticatedUserId)) {
+            throw new ForbiddenException("You are not authorized to repay this loan");
+        }
         if (loan.getStatus() != LoanStatus.ACTIVE) {
             throw new IllegalStateException("Only active loans can be repaid");
         }

@@ -2,6 +2,7 @@ package com.hashwhale.core.controller;
 
 import com.hashwhale.core.dto.ApiErrorResponse;
 import com.hashwhale.core.service.EmailAlreadyRegisteredException;
+import com.hashwhale.core.service.ForbiddenException;
 import com.hashwhale.core.service.InsufficientBalanceException;
 import com.hashwhale.core.service.InvalidCredentialsException;
 import com.hashwhale.core.service.LtvLimitExceededException;
@@ -19,6 +20,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleForbidden(
+            ForbiddenException exception, HttpServletRequest request) {
+        return errorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(EmailAlreadyRegisteredException.class)
     public ResponseEntity<ApiErrorResponse> handleEmailAlreadyRegistered(
             EmailAlreadyRegisteredException exception, HttpServletRequest request) {
@@ -32,7 +39,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({InsufficientBalanceException.class, LtvLimitExceededException.class})
-    public ResponseEntity<ApiErrorResponse> handleBorrowValidationException(
+    public ResponseEntity<ApiErrorResponse> handleBusinessValidationException(
             RuntimeException exception, HttpServletRequest request) {
         return errorResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
     }
