@@ -69,7 +69,9 @@ public class BorrowController {
     }
 
     @PostMapping("/loans/{loanId}/repay")
-    @Operation(summary = "Repay a loan", description = "Marks an active loan as repaid and unlocks its collateral.")
+    @Operation(
+            summary = "Repay a loan",
+            description = "Deducts the borrowed principal, marks the loan as repaid, and unlocks its collateral.")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
@@ -77,7 +79,7 @@ public class BorrowController {
                     content = @Content(schema = @Schema(implementation = LoanResponse.class))),
             @ApiResponse(
                     responseCode = "400",
-                    description = "Invalid loan id or loan not found",
+                    description = "Invalid loan, loan not found, or insufficient repayment balance",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
             @ApiResponse(
                     responseCode = "409",

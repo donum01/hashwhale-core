@@ -6,6 +6,7 @@ import com.hashwhale.core.service.ForbiddenException;
 import com.hashwhale.core.service.InsufficientBalanceException;
 import com.hashwhale.core.service.InvalidCredentialsException;
 import com.hashwhale.core.service.LtvLimitExceededException;
+import com.hashwhale.core.service.MarketDataUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
@@ -70,6 +71,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleConflict(
             IllegalStateException exception, HttpServletRequest request) {
         return errorResponse(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MarketDataUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> handleMarketDataUnavailable(
+            MarketDataUnavailableException exception, HttpServletRequest request) {
+        return errorResponse(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), request);
     }
 
     private String fieldErrorMessage(FieldError fieldError) {

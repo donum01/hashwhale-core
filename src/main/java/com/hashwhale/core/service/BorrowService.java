@@ -1,5 +1,6 @@
 package com.hashwhale.core.service;
 
+import com.hashwhale.core.config.BorrowConfigurationProperties;
 import com.hashwhale.core.entity.Asset;
 import com.hashwhale.core.entity.Loan;
 import com.hashwhale.core.entity.LoanStatus;
@@ -24,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class BorrowService {
 
     private static final Asset DEFAULT_BORROWED_ASSET = Asset.USDT;
-    private static final BigDecimal DEFAULT_INTEREST_RATE_APR = BigDecimal.ZERO;
-    private static final BigDecimal MAX_LTV_PERCENT = new BigDecimal("70");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
     private static final int LTV_SCALE = 8;
 
@@ -34,6 +33,7 @@ public class BorrowService {
     private final LoanRepository loanRepository;
     private final TransactionRepository transactionRepository;
     private final PriceService priceService;
+    private final BorrowConfigurationProperties configuration;
 
     /**
      * Creates a USDT-denominated loan secured by an amount of the supplied collateral asset.
@@ -46,6 +46,7 @@ public class BorrowService {
             BigDecimal borrowedAmount) {
         validateRequired(userId, "User id");
         validateRequired(collateralAsset, "Collateral asset");
+        validateCollateralAsset(collateralAsset);
         validatePositive(collateralAmount, "Collateral amount");
         validatePositive(borrowedAmount, "Borrowed amount");
 
@@ -66,20 +67,25 @@ public class BorrowService {
         loan.setCollateralAmount(collateralAmount);
         loan.setBorrowedAmount(borrowedAmount);
         loan.setBorrowedAsset(DEFAULT_BORROWED_ASSET);
-        loan.setInterestRateApr(DEFAULT_INTEREST_RATE_APR);
+        loan.setInterestRateApr(configuration.getInterestRateApr());
         loan.setStatus(LoanStatus.ACTIVE);
 
         BigDecimal currentCollateralPrice = priceService.getUsdPrice(collateralAsset);
         BigDecimal ltv = calculateLtv(loan, currentCollateralPrice);
-        if (ltv.compareTo(MAX_LTV_PERCENT) > 0) {
+        if (ltv.compareTo(configuration.getMaxLtvPercent()) > 0) {
             throw new LtvLimitExceededException(
-                    "Loan-to-value of " + ltv + "% exceeds the " + MAX_LTV_PERCENT + "% limit");
+                    "Loan-to-value of " + ltv + "% exceeds the "
+                            + configuration.getMaxLtvPercent() + "% limit");
         }
+
+        WalletBalance borrowedAssetBalance = findOrCreateBorrowedAssetBalance(user, collateralBalance);
 
         collateralBalance.setAvailableAmount(
                 collateralBalance.getAvailableAmount().subtract(collateralAmount));
         collateralBalance.setLockedAmount(collateralBalance.getLockedAmount().add(collateralAmount));
-        walletBalanceRepository.save(collateralBalance);
+        borrowedAssetBalance.setAvailableAmount(
+                borrowedAssetBalance.getAvailableAmount().add(borrowedAmount));
+        saveAffectedBalances(collateralBalance, borrowedAssetBalance);
 
         Loan savedLoan = loanRepository.save(loan);
         transactionRepository.save(createTransaction(
@@ -92,7 +98,7 @@ public class BorrowService {
     }
 
     /**
-     * Records repayment and releases the loan's collateral back to the user's available balance.
+     * Deducts the borrowed principal, records repayment, and releases the loan's collateral.
      */
     @Transactional
     public Loan repayLoan(Long loanId) {
@@ -122,13 +128,21 @@ public class BorrowService {
             throw new IllegalStateException("Locked collateral is less than the loan collateral amount");
         }
 
+        WalletBalance repaymentBalance = findRepaymentBalance(loan, collateralBalance);
+        if (repaymentBalance.getAvailableAmount().compareTo(loan.getBorrowedAmount()) < 0) {
+            throw new InsufficientBalanceException(
+                    "Insufficient available " + loan.getBorrowedAsset() + " balance to repay loan");
+        }
+
+        repaymentBalance.setAvailableAmount(
+                repaymentBalance.getAvailableAmount().subtract(loan.getBorrowedAmount()));
         collateralBalance.setLockedAmount(
                 collateralBalance.getLockedAmount().subtract(loan.getCollateralAmount()));
         collateralBalance.setAvailableAmount(
                 collateralBalance.getAvailableAmount().add(loan.getCollateralAmount()));
         loan.setStatus(LoanStatus.REPAID);
 
-        walletBalanceRepository.save(collateralBalance);
+        saveAffectedBalances(collateralBalance, repaymentBalance);
         Loan savedLoan = loanRepository.save(loan);
         transactionRepository.save(createTransaction(
                 loan.getUser(),
@@ -169,6 +183,45 @@ public class BorrowService {
                 .divide(collateralUsdValue, LTV_SCALE, RoundingMode.HALF_UP);
     }
 
+    private WalletBalance findOrCreateBorrowedAssetBalance(
+            User user, WalletBalance collateralBalance) {
+        if (collateralBalance.getAsset() == DEFAULT_BORROWED_ASSET) {
+            return collateralBalance;
+        }
+
+        return walletBalanceRepository
+                .findByUserIdAndAssetForUpdate(user.getId(), DEFAULT_BORROWED_ASSET)
+                .orElseGet(() -> newBalance(user, DEFAULT_BORROWED_ASSET));
+    }
+
+    private WalletBalance findRepaymentBalance(Loan loan, WalletBalance collateralBalance) {
+        if (collateralBalance.getAsset() == loan.getBorrowedAsset()) {
+            return collateralBalance;
+        }
+
+        return walletBalanceRepository
+                .findByUserIdAndAssetForUpdate(loan.getUser().getId(), loan.getBorrowedAsset())
+                .orElseThrow(() -> new InsufficientBalanceException(
+                        "No wallet balance exists for repayment asset " + loan.getBorrowedAsset()));
+    }
+
+    private WalletBalance newBalance(User user, Asset asset) {
+        WalletBalance balance = new WalletBalance();
+        balance.setUser(user);
+        balance.setAsset(asset);
+        balance.setAvailableAmount(BigDecimal.ZERO);
+        balance.setLockedAmount(BigDecimal.ZERO);
+        return balance;
+    }
+
+    private void saveAffectedBalances(
+            WalletBalance collateralBalance, WalletBalance borrowedAssetBalance) {
+        walletBalanceRepository.save(collateralBalance);
+        if (borrowedAssetBalance != collateralBalance) {
+            walletBalanceRepository.save(borrowedAssetBalance);
+        }
+    }
+
     private Transaction createTransaction(User user, TransactionType type, Asset asset, BigDecimal amount) {
         Transaction transaction = new Transaction();
         transaction.setUser(user);
@@ -182,6 +235,12 @@ public class BorrowService {
     private void validatePositive(BigDecimal value, String fieldName) {
         if (value == null || value.signum() <= 0) {
             throw new IllegalArgumentException(fieldName + " must be greater than zero");
+        }
+    }
+
+    private void validateCollateralAsset(Asset collateralAsset) {
+        if (collateralAsset != Asset.BTC && collateralAsset != Asset.ETH) {
+            throw new IllegalArgumentException("Collateral asset must be BTC or ETH");
         }
     }
 

@@ -12,4 +12,6 @@ import java.math.BigDecimal;
 public interface PriceService {
 
     BigDecimal getUsdPrice(Asset asset);
+
+    PriceServiceStatus getStatus();
 }

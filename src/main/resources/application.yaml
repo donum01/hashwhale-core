@@ -29,4 +29,70 @@ app:
   jwt:
     # Base64-encoded 256-bit (or stronger) key. Set this outside source control.
     secret: ${JWT_SECRET}
-    expiration-ms: 86400000
+    expiration-ms: 86400000 # 24 hours in milliseconds
+  borrow:
+    interest-rate-apr: 2.88
+    max-ltv-percent: 70
+    warning-ltv-percent: 50
+    liquidation-ltv-percent: 85
+  pricing:
+    provider: ${PRICE_PROVIDER:coingecko}
+    collector-enabled: true
+    base-url: https://api.coingecko.com/api/v3
+    api-key: ${COINGECKO_API_KEY:}
+    refresh-ms: 300000
+    connect-timeout-ms: 3000
+    request-timeout-ms: 10000
+    rate-limit-initial-backoff-ms: 2000
+    rate-limit-max-retries: 3
+    fallback-usd-prices:
+      BTC: 60000
+      ETH: 3000
+      USDT: 1
+  earn:
+    products:
+      BTC_FLEXIBLE:
+        asset: BTC
+        term-type: FLEXIBLE
+        apy: 1.50
+        minimum-amount: 0.0001
+      BTC_LOCKED_30:
+        asset: BTC
+        term-type: LOCKED_30
+        apy: 2.25
+        minimum-amount: 0.0001
+      BTC_LOCKED_90:
+        asset: BTC
+        term-type: LOCKED_90
+        apy: 3.00
+        minimum-amount: 0.0001
+      ETH_FLEXIBLE:
+        asset: ETH
+        term-type: FLEXIBLE
+        apy: 2.25
+        minimum-amount: 0.001
+      ETH_LOCKED_30:
+        asset: ETH
+        term-type: LOCKED_30
+        apy: 3.50
+        minimum-amount: 0.001
+      ETH_LOCKED_90:
+        asset: ETH
+        term-type: LOCKED_90
+        apy: 4.20
+        minimum-amount: 0.001
+      USDT_FLEXIBLE:
+        asset: USDT
+        term-type: FLEXIBLE
+        apy: 4.50
+        minimum-amount: 10
+      USDT_LOCKED_30:
+        asset: USDT
+        term-type: LOCKED_30
+        apy: 5.25
+        minimum-amount: 10
+      USDT_LOCKED_90:
+        asset: USDT
+        term-type: LOCKED_90
+        apy: 6.00
+        minimum-amount: 10

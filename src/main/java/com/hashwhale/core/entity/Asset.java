@@ -6,6 +6,5 @@ package com.hashwhale.core.entity;
 public enum Asset {
     BTC,
     ETH,
-    USDT,
-    USDC
+    USDT
 }

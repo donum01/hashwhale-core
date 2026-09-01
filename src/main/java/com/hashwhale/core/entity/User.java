@@ -39,6 +39,14 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    /**
+     * Nullable only for compatibility with accounts created before country was persisted.
+     * New registrations require this field at the API boundary.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "country_code", length = 2)
+    private CountryCode countryCode;
+
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "kyc_status", nullable = false, length = 20)
@@ -52,5 +60,9 @@ public class User {
         if (createdAt == null) {
             createdAt = Instant.now();
         }
+    }
+
+    public FiatCurrency getPreferredFiatCurrency() {
+        return countryCode == null ? FiatCurrency.USD : countryCode.getFiatCurrency();
     }
 }

@@ -71,11 +71,13 @@ public class WalletController {
     }
 
     @PostMapping("/{userId}/deposit")
-    @Operation(summary = "Deposit an asset into a user's wallet")
+    @Operation(
+            summary = "Simulate a wallet deposit",
+            description = "Updates the internal demo ledger only; no blockchain transaction or real asset transfer occurs.")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Deposit completed and balance updated",
+                    description = "Simulated deposit completed and demo balance updated",
                     content = @Content(schema = @Schema(implementation = WalletBalanceResponse.class))),
             @ApiResponse(
                     responseCode = "400",
@@ -93,11 +95,13 @@ public class WalletController {
     }
 
     @PostMapping("/{userId}/withdraw")
-    @Operation(summary = "Withdraw an available asset from a user's wallet")
+    @Operation(
+            summary = "Simulate a wallet withdrawal",
+            description = "Updates the internal demo ledger only; no blockchain transaction or real asset transfer occurs.")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
-                    description = "Withdrawal completed and balance updated",
+                    description = "Simulated withdrawal completed and demo balance updated",
                     content = @Content(schema = @Schema(implementation = WalletBalanceResponse.class))),
             @ApiResponse(
                     responseCode = "400",

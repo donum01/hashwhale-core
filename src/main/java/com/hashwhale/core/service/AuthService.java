@@ -29,6 +29,7 @@ public class AuthService {
         User user = new User();
         user.setEmail(email);
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setCountryCode(request.getCountryCode());
         userRepository.save(user);
     }
 

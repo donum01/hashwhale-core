@@ -111,7 +111,7 @@ class WalletServiceTest {
     void depositRejectsNonPositiveAmountBeforeRepositoryAccess() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> walletService.deposit(1L, Asset.USDC, BigDecimal.ZERO));
+                () -> walletService.deposit(1L, Asset.USDT, BigDecimal.ZERO));
 
         verifyNoInteractions(userRepository, walletBalanceRepository, transactionRepository);
     }

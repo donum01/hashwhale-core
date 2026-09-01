@@ -16,7 +16,10 @@ import lombok.Setter;
 public class CreateLoanRequest {
 
     @NotNull
-    @Schema(description = "Asset to lock as collateral", example = "BTC")
+    @Schema(
+            description = "Asset to lock as collateral",
+            example = "BTC",
+            allowableValues = {"BTC", "ETH"})
     private Asset collateralAsset;
 
     @NotNull

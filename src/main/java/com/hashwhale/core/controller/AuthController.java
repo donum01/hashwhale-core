@@ -77,6 +77,8 @@ public class AuthController {
                 user.getId(),
                 user.getEmail(),
                 user.getKycStatus(),
+                user.getCountryCode(),
+                user.getPreferredFiatCurrency(),
                 user.getCreatedAt()));
     }
 }
