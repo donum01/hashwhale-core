@@ -52,61 +52,73 @@ class ResourceOwnershipIntegrationTest {
     private JwtService jwtService;
 
     @Test
-    void authenticatedUserCannotViewOrMutateAnotherUsersWallet() throws Exception {
+    void walletEndpointsAreScopedToTheAuthenticatedUserWithoutASelectableUserId() throws Exception {
         User owner = saveUser("wallet-owner@example.com");
-        User attacker = saveUser("wallet-attacker@example.com");
+        User authenticatedUser = saveUser("wallet-authenticated@example.com");
         WalletBalance ownerBalance = walletBalanceRepository.saveAndFlush(
                 balance(owner, Asset.USDT, "500.00", "25.00"));
-        String attackerToken = jwtService.generateToken(attacker);
+        String token = jwtService.generateToken(authenticatedUser);
         long initialTransactionCount = transactionRepository.count();
 
-        assertForbidden(
-                post("/api/wallet/{userId}/deposit", owner.getId())
+        mockMvc.perform(post("/api/wallet/deposit")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"asset":"USDT","amount":75.00}
-                                """),
-                attackerToken,
-                "/api/wallet/" + owner.getId() + "/deposit");
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableAmount").value(75.00));
 
-        assertForbidden(
-                post("/api/wallet/{userId}/withdraw", owner.getId())
+        mockMvc.perform(post("/api/wallet/withdraw")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"asset":"USDT","amount":50.00}
-                                """),
-                attackerToken,
-                "/api/wallet/" + owner.getId() + "/withdraw");
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableAmount").value(25.00));
 
-        assertForbidden(
-                get("/api/wallet/{userId}/balances", owner.getId()),
-                attackerToken,
-                "/api/wallet/" + owner.getId() + "/balances");
+        mockMvc.perform(get("/api/wallet/balances")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].asset").value("USDT"))
+                .andExpect(jsonPath("$[0].availableAmount").value(25.00))
+                .andExpect(jsonPath("$[0].lockedAmount").value(0));
 
-        assertForbidden(
-                get("/api/wallet/{userId}/transactions", owner.getId()),
-                attackerToken,
-                "/api/wallet/" + owner.getId() + "/transactions");
+        mockMvc.perform(get("/api/wallet/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].type").value("WITHDRAW"))
+                .andExpect(jsonPath("$[1].type").value("DEPOSIT"));
 
         WalletBalance unchangedBalance = walletBalanceRepository.findById(ownerBalance.getId()).orElseThrow();
+        WalletBalance authenticatedBalance = walletBalanceRepository
+                .findByUserIdAndAsset(authenticatedUser.getId(), Asset.USDT)
+                .orElseThrow();
         assertEquals(0, new BigDecimal("500.00").compareTo(unchangedBalance.getAvailableAmount()));
         assertEquals(0, new BigDecimal("25.00").compareTo(unchangedBalance.getLockedAmount()));
-        assertEquals(initialTransactionCount, transactionRepository.count());
+        assertEquals(0, new BigDecimal("25.00").compareTo(authenticatedBalance.getAvailableAmount()));
+        assertEquals(initialTransactionCount + 2, transactionRepository.count());
     }
 
     @Test
-    void authenticatedUserCannotViewBorrowOrRepayAnotherUsersLoans() throws Exception {
+    void borrowEndpointsAreScopedToTheAuthenticatedUserAndRepaymentStillChecksOwnership()
+            throws Exception {
         User owner = saveUser("loan-owner@example.com");
-        User attacker = saveUser("loan-attacker@example.com");
+        User authenticatedUser = saveUser("loan-authenticated@example.com");
         WalletBalance ownerCollateral = walletBalanceRepository.saveAndFlush(
                 balance(owner, Asset.BTC, "0.75", "0.25"));
+        WalletBalance authenticatedCollateral = walletBalanceRepository.saveAndFlush(
+                balance(authenticatedUser, Asset.BTC, "0.50", "0.00"));
         Loan ownerLoan = loanRepository.saveAndFlush(activeLoan(owner));
-        String attackerToken = jwtService.generateToken(attacker);
+        String token = jwtService.generateToken(authenticatedUser);
         long initialLoanCount = loanRepository.count();
         long initialTransactionCount = transactionRepository.count();
 
-        assertForbidden(
-                post("/api/borrow/{userId}/loans", owner.getId())
+        mockMvc.perform(post("/api/borrow/loans")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -114,27 +126,55 @@ class ResourceOwnershipIntegrationTest {
                                   "collateralAmount":0.10,
                                   "borrowedAmount":1000.00
                                 }
-                                """),
-                attackerToken,
-                "/api/borrow/" + owner.getId() + "/loans");
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
 
-        assertForbidden(
-                get("/api/borrow/{userId}/loans", owner.getId()),
-                attackerToken,
-                "/api/borrow/" + owner.getId() + "/loans");
+        mockMvc.perform(get("/api/borrow/loans")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].collateralAsset").value("BTC"))
+                .andExpect(jsonPath("$[0].collateralAmount").value(0.10));
 
         assertForbidden(
                 post("/api/borrow/loans/{loanId}/repay", ownerLoan.getId()),
-                attackerToken,
+                token,
                 "/api/borrow/loans/" + ownerLoan.getId() + "/repay");
 
         WalletBalance unchangedCollateral = walletBalanceRepository.findById(ownerCollateral.getId()).orElseThrow();
+        WalletBalance updatedAuthenticatedCollateral = walletBalanceRepository
+                .findById(authenticatedCollateral.getId())
+                .orElseThrow();
         Loan unchangedLoan = loanRepository.findById(ownerLoan.getId()).orElseThrow();
         assertEquals(0, new BigDecimal("0.75").compareTo(unchangedCollateral.getAvailableAmount()));
         assertEquals(0, new BigDecimal("0.25").compareTo(unchangedCollateral.getLockedAmount()));
+        assertEquals(
+                0,
+                new BigDecimal("0.40").compareTo(
+                        updatedAuthenticatedCollateral.getAvailableAmount()));
+        assertEquals(
+                0,
+                new BigDecimal("0.10").compareTo(
+                        updatedAuthenticatedCollateral.getLockedAmount()));
         assertEquals(LoanStatus.ACTIVE, unchangedLoan.getStatus());
-        assertEquals(initialLoanCount, loanRepository.count());
-        assertEquals(initialTransactionCount, transactionRepository.count());
+        assertEquals(1, loanRepository.findByUserId(authenticatedUser.getId()).size());
+        assertEquals(initialLoanCount + 1, loanRepository.count());
+        assertEquals(initialTransactionCount + 1, transactionRepository.count());
+    }
+
+    @Test
+    void legacyUserIdRoutesAreNotMapped() throws Exception {
+        User owner = saveUser("legacy-route-owner@example.com");
+        User authenticatedUser = saveUser("legacy-route-authenticated@example.com");
+        String token = jwtService.generateToken(authenticatedUser);
+
+        mockMvc.perform(get("/api/wallet/{userId}/balances", owner.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/borrow/{userId}/loans", owner.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound());
     }
 
     private void assertForbidden(

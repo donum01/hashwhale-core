@@ -39,8 +39,10 @@ public class BorrowController {
 
     private final BorrowService borrowService;
 
-    @PostMapping("/{userId}/loans")
-    @Operation(summary = "Create a loan", description = "Creates a USDT loan secured by the supplied collateral.")
+    @PostMapping("/loans")
+    @Operation(
+            summary = "Create a loan for the authenticated user",
+            description = "Creates a USDT loan secured by the supplied collateral.")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "201",
@@ -50,21 +52,17 @@ public class BorrowController {
                     responseCode = "400",
                     description = "Invalid input, insufficient collateral, or LTV limit exceeded",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(
-                    responseCode = "403",
-                    description = "Authenticated user does not own the requested account",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
     public ResponseEntity<LoanResponse> createLoan(
-            @PathVariable @Positive Long userId,
             @Valid @RequestBody CreateLoanRequest request) {
-        verifyUserAccess(userId);
+        User user = getAuthenticatedUser();
         Loan loan = borrowService.createLoan(
-                userId,
+                user.getId(),
                 request.getCollateralAsset(),
                 request.getCollateralAmount(),
                 request.getBorrowedAmount());
-        URI location = URI.create("/api/borrow/" + userId + "/loans/" + loan.getId());
+        URI location = URI.create("/api/borrow/loans/" + loan.getId());
         return ResponseEntity.created(location).body(toResponse(loan));
     }
 
@@ -95,25 +93,18 @@ public class BorrowController {
         return ResponseEntity.ok(toResponse(borrowService.repayLoan(loanId, authenticatedUser.getId())));
     }
 
-    @GetMapping("/{userId}/loans")
-    @Operation(summary = "List a user's loans")
+    @GetMapping("/loans")
+    @Operation(summary = "List the authenticated user's loans")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
                     description = "Loans returned",
                     content = @Content(array = @ArraySchema(schema = @Schema(implementation = LoanResponse.class)))),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid user id or user not found",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(
-                    responseCode = "403",
-                    description = "Authenticated user does not own the requested account",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
-    public ResponseEntity<List<LoanResponse>> getLoansForUser(@PathVariable @Positive Long userId) {
-        verifyUserAccess(userId);
-        List<LoanResponse> loans = borrowService.getLoansForUser(userId)
+    public ResponseEntity<List<LoanResponse>> getLoansForUser() {
+        User user = getAuthenticatedUser();
+        List<LoanResponse> loans = borrowService.getLoansForUser(user.getId())
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -130,14 +121,6 @@ public class BorrowController {
                 loan.getInterestRateApr(),
                 loan.getStatus(),
                 loan.getCreatedAt());
-    }
-
-    private void verifyUserAccess(Long requestedUserId) {
-        User authenticatedUser = getAuthenticatedUser();
-        if (!authenticatedUser.getId().equals(requestedUserId)) {
-            throw new ForbiddenException(
-                    "You are not authorized to access borrow resources for user " + requestedUserId);
-        }
     }
 
     private User getAuthenticatedUser() {

@@ -17,7 +17,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Positive;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -25,7 +24,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,8 +38,8 @@ public class WalletController {
 
     private final WalletService walletService;
 
-    @GetMapping("/{userId}/balances")
-    @Operation(summary = "List a user's wallet balances")
+    @GetMapping("/balances")
+    @Operation(summary = "List the authenticated user's wallet balances")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
@@ -49,28 +47,20 @@ public class WalletController {
                     content = @Content(array = @ArraySchema(
                             schema = @Schema(implementation = WalletBalanceResponse.class)))),
             @ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid user id",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(
                     responseCode = "401",
                     description = "Missing, invalid, or expired JWT",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(
-                    responseCode = "403",
-                    description = "Authenticated user does not own the requested wallet",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
     })
-    public ResponseEntity<List<WalletBalanceResponse>> getBalances(@PathVariable @Positive Long userId) {
-        verifyUserAccess(userId);
-        List<WalletBalanceResponse> balances = walletService.getBalances(userId)
+    public ResponseEntity<List<WalletBalanceResponse>> getBalances() {
+        User user = getAuthenticatedUser();
+        List<WalletBalanceResponse> balances = walletService.getBalances(user.getId())
                 .stream()
                 .map(this::toBalanceResponse)
                 .toList();
         return ResponseEntity.ok(balances);
     }
 
-    @PostMapping("/{userId}/deposit")
+    @PostMapping("/deposit")
     @Operation(
             summary = "Simulate a wallet deposit",
             description = "Updates the internal demo ledger only; no blockchain transaction or real asset transfer occurs.")
@@ -81,20 +71,19 @@ public class WalletController {
                     content = @Content(schema = @Schema(implementation = WalletBalanceResponse.class))),
             @ApiResponse(
                     responseCode = "400",
-                    description = "Invalid user, asset, or amount",
+                    description = "Invalid asset or amount",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT"),
-            @ApiResponse(responseCode = "403", description = "Authenticated user does not own this wallet")
+            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
     public ResponseEntity<WalletBalanceResponse> deposit(
-            @PathVariable @Positive Long userId,
             @Valid @RequestBody WalletTransactionRequest request) {
-        verifyUserAccess(userId);
-        WalletBalance balance = walletService.deposit(userId, request.getAsset(), request.getAmount());
+        User user = getAuthenticatedUser();
+        WalletBalance balance = walletService.deposit(
+                user.getId(), request.getAsset(), request.getAmount());
         return ResponseEntity.ok(toBalanceResponse(balance));
     }
 
-    @PostMapping("/{userId}/withdraw")
+    @PostMapping("/withdraw")
     @Operation(
             summary = "Simulate a wallet withdrawal",
             description = "Updates the internal demo ledger only; no blockchain transaction or real asset transfer occurs.")
@@ -107,35 +96,31 @@ public class WalletController {
                     responseCode = "400",
                     description = "Invalid input or insufficient available balance",
                     content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT"),
-            @ApiResponse(responseCode = "403", description = "Authenticated user does not own this wallet")
+            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
     public ResponseEntity<WalletBalanceResponse> withdraw(
-            @PathVariable @Positive Long userId,
             @Valid @RequestBody WalletTransactionRequest request) {
-        verifyUserAccess(userId);
-        WalletBalance balance = walletService.withdraw(userId, request.getAsset(), request.getAmount());
+        User user = getAuthenticatedUser();
+        WalletBalance balance = walletService.withdraw(
+                user.getId(), request.getAsset(), request.getAmount());
         return ResponseEntity.ok(toBalanceResponse(balance));
     }
 
-    @GetMapping("/{userId}/transactions")
-    @Operation(summary = "List a user's transactions", description = "Returns newest transactions first.")
+    @GetMapping("/transactions")
+    @Operation(
+            summary = "List the authenticated user's transactions",
+            description = "Returns newest transactions first.")
     @ApiResponses({
             @ApiResponse(
                     responseCode = "200",
                     description = "Transactions returned",
                     content = @Content(array = @ArraySchema(
                             schema = @Schema(implementation = TransactionResponse.class)))),
-            @ApiResponse(
-                    responseCode = "400",
-                    description = "Invalid user id",
-                    content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT"),
-            @ApiResponse(responseCode = "403", description = "Authenticated user does not own this wallet")
+            @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
-    public ResponseEntity<List<TransactionResponse>> getTransactions(@PathVariable @Positive Long userId) {
-        verifyUserAccess(userId);
-        List<TransactionResponse> transactions = walletService.getTransactions(userId)
+    public ResponseEntity<List<TransactionResponse>> getTransactions() {
+        User user = getAuthenticatedUser();
+        List<TransactionResponse> transactions = walletService.getTransactions(user.getId())
                 .stream()
                 .map(this::toTransactionResponse)
                 .toList();
@@ -156,14 +141,6 @@ public class WalletController {
                 transaction.getAmount(),
                 transaction.getStatus(),
                 transaction.getCreatedAt());
-    }
-
-    private void verifyUserAccess(Long requestedUserId) {
-        User authenticatedUser = getAuthenticatedUser();
-        if (!authenticatedUser.getId().equals(requestedUserId)) {
-            throw new ForbiddenException(
-                    "You are not authorized to access wallet resources for user " + requestedUserId);
-        }
     }
 
     private User getAuthenticatedUser() {

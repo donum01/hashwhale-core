@@ -25,7 +25,7 @@ class SecurityCorsIntegrationTest {
 
     @Test
     void protectedBorrowEndpointAcceptsUnauthenticatedPreflightRequest() throws Exception {
-        mockMvc.perform(options("/api/borrow/1/loans")
+        mockMvc.perform(options("/api/borrow/loans")
                         .header(HttpHeaders.ORIGIN, FRONTEND_ORIGIN)
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andExpect(status().isOk())

@@ -9,5 +9,5 @@ public record ApiErrorResponse(
         @Schema(example = "400") int status,
         @Schema(example = "Bad Request") String error,
         @Schema(example = "Insufficient available collateral balance") String message,
-        @Schema(example = "/api/borrow/1/loans") String path) {
+        @Schema(example = "/api/borrow/loans") String path) {
 }

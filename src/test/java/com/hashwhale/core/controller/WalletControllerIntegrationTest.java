@@ -40,7 +40,7 @@ class WalletControllerIntegrationTest {
 
     @Test
     void getBalancesRequiresAuthentication() throws Exception {
-        mockMvc.perform(get("/api/wallet/1/balances"))
+        mockMvc.perform(get("/api/wallet/balances"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -50,15 +50,15 @@ class WalletControllerIntegrationTest {
                 {"asset":"USDT","amount":100}
                 """;
 
-        mockMvc.perform(post("/api/wallet/1/deposit")
+        mockMvc.perform(post("/api/wallet/deposit")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(post("/api/wallet/1/withdraw")
+        mockMvc.perform(post("/api/wallet/withdraw")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(requestBody))
                 .andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/api/wallet/1/transactions"))
+        mockMvc.perform(get("/api/wallet/transactions"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -76,7 +76,7 @@ class WalletControllerIntegrationTest {
 
         String token = jwtService.generateToken(savedUser);
 
-        mockMvc.perform(get("/api/wallet/{userId}/balances", savedUser.getId())
+        mockMvc.perform(get("/api/wallet/balances")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].asset").value("BTC"))
@@ -97,7 +97,7 @@ class WalletControllerIntegrationTest {
         User savedUser = userRepository.saveAndFlush(user);
         String token = jwtService.generateToken(savedUser);
 
-        mockMvc.perform(post("/api/wallet/{userId}/deposit", savedUser.getId())
+        mockMvc.perform(post("/api/wallet/deposit")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -108,7 +108,7 @@ class WalletControllerIntegrationTest {
                 .andExpect(jsonPath("$.availableAmount").value(500.50))
                 .andExpect(jsonPath("$.lockedAmount").value(0));
 
-        mockMvc.perform(post("/api/wallet/{userId}/withdraw", savedUser.getId())
+        mockMvc.perform(post("/api/wallet/withdraw")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -118,7 +118,7 @@ class WalletControllerIntegrationTest {
                 .andExpect(jsonPath("$.availableAmount").value(375.25))
                 .andExpect(jsonPath("$.lockedAmount").value(0));
 
-        mockMvc.perform(get("/api/wallet/{userId}/transactions", savedUser.getId())
+        mockMvc.perform(get("/api/wallet/transactions")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].type").value("WITHDRAW"))
