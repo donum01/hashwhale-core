@@ -10,14 +10,19 @@ import static org.mockito.Mockito.when;
 
 import com.hashwhale.core.config.PricingConfigurationProperties;
 import com.hashwhale.core.entity.Asset;
+import com.hashwhale.core.entity.ExchangeRatePoint;
 import com.hashwhale.core.entity.FiatCurrency;
+import com.hashwhale.core.entity.MarketPricePoint;
 import com.hashwhale.core.entity.PriceSource;
 import com.hashwhale.core.repository.ExchangeRatePointRepository;
 import com.hashwhale.core.repository.MarketPricePointRepository;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.ApplicationArguments;
 
@@ -45,6 +50,7 @@ class MarketDataCollectorTest {
         CoinGeckoExchangeRateSnapshot rates = new CoinGeckoExchangeRateSnapshot(
                 Map.of(FiatCurrency.USD, BigDecimal.ONE), NOW);
         when(client.fetchFiatPerUsdRates()).thenReturn(rates);
+        stubLatestSnapshots(priceRepository, rateRepository, NOW);
         MarketDataCollector collector = collector(
                 client, persistence, priceRepository, rateRepository, configuration(0, 1));
 
@@ -55,6 +61,49 @@ class MarketDataCollectorTest {
         verify(client, never()).fetchPriceHistory(
                 Asset.ETH, FiatCurrency.USD, PriceHistoryRange.NINETY_DAYS);
         verify(persistence).appendExchangeRates(rates);
+    }
+
+    @Test
+    void startupImmediatelyRefreshesExistingStaleSnapshots() {
+        CoinGeckoMarketDataClient client = mock(CoinGeckoMarketDataClient.class);
+        MarketDataPersistenceService persistence = mock(MarketDataPersistenceService.class);
+        MarketPricePointRepository priceRepository = mock(MarketPricePointRepository.class);
+        ExchangeRatePointRepository rateRepository = mock(ExchangeRatePointRepository.class);
+        stubExistingRows(priceRepository, rateRepository);
+        stubLatestSnapshots(priceRepository, rateRepository, NOW.minusSeconds(3600));
+
+        CoinGeckoPriceSnapshot prices = pricesAt(NOW);
+        CoinGeckoExchangeRateSnapshot rates = new CoinGeckoExchangeRateSnapshot(
+                Map.of(FiatCurrency.USD, BigDecimal.ONE), NOW);
+        when(client.fetchUsdPrices()).thenReturn(prices);
+        when(client.fetchFiatPerUsdRates()).thenReturn(rates);
+        MarketDataCollector collector = collector(
+                client, persistence, priceRepository, rateRepository, configuration(0, 1));
+
+        collector.run(mock(ApplicationArguments.class));
+
+        verify(client).fetchUsdPrices();
+        verify(persistence).appendCurrentPrices(prices);
+        verify(persistence).appendExchangeRates(rates);
+        verify(client, never()).fetchPriceHistory(any(), any(), any());
+    }
+
+    @Test
+    void startupDoesNotCallProviderWhenStoredSnapshotsAreFresh() {
+        CoinGeckoMarketDataClient client = mock(CoinGeckoMarketDataClient.class);
+        MarketDataPersistenceService persistence = mock(MarketDataPersistenceService.class);
+        MarketPricePointRepository priceRepository = mock(MarketPricePointRepository.class);
+        ExchangeRatePointRepository rateRepository = mock(ExchangeRatePointRepository.class);
+        stubExistingRows(priceRepository, rateRepository);
+        stubLatestSnapshots(priceRepository, rateRepository, NOW);
+        MarketDataCollector collector = collector(
+                client, persistence, priceRepository, rateRepository, configuration(0, 1));
+
+        collector.run(mock(ApplicationArguments.class));
+
+        verify(client, never()).fetchUsdPrices();
+        verify(client, never()).fetchFiatPerUsdRates();
+        verify(client, never()).fetchPriceHistory(any(), any(), any());
     }
 
     @Test
@@ -114,14 +163,53 @@ class MarketDataCollectorTest {
                 persistence,
                 priceRepository,
                 rateRepository,
-                configuration);
+                configuration,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private PricingConfigurationProperties configuration(int retries, long backoffMs) {
         PricingConfigurationProperties configuration = new PricingConfigurationProperties();
         configuration.setRateLimitMaxRetries(retries);
         configuration.setRateLimitInitialBackoffMs(backoffMs);
+        configuration.setRefreshMs(300000L);
         return configuration;
+    }
+
+    private void stubExistingRows(
+            MarketPricePointRepository priceRepository,
+            ExchangeRatePointRepository rateRepository) {
+        for (Asset asset : Asset.values()) {
+            when(priceRepository.countByAsset(asset)).thenReturn(1L);
+        }
+        for (FiatCurrency currency : FiatCurrency.values()) {
+            when(rateRepository.countByQuoteCurrency(currency)).thenReturn(1L);
+        }
+    }
+
+    private void stubLatestSnapshots(
+            MarketPricePointRepository priceRepository,
+            ExchangeRatePointRepository rateRepository,
+            Instant timestamp) {
+        for (Asset asset : Asset.values()) {
+            MarketPricePoint point = new MarketPricePoint();
+            point.setTimestamp(timestamp);
+            when(priceRepository.findFirstByAssetAndQuoteCurrencyOrderByTimestampDesc(
+                            asset, FiatCurrency.USD))
+                    .thenReturn(Optional.of(point));
+        }
+        for (FiatCurrency currency : FiatCurrency.values()) {
+            ExchangeRatePoint point = new ExchangeRatePoint();
+            point.setTimestamp(timestamp);
+            when(rateRepository.findFirstByQuoteCurrencyOrderByTimestampDesc(currency))
+                    .thenReturn(Optional.of(point));
+        }
+    }
+
+    private CoinGeckoPriceSnapshot pricesAt(Instant timestamp) {
+        return new CoinGeckoPriceSnapshot(Map.of(
+                Asset.BTC, new MarketPriceSample(timestamp, new BigDecimal("60000")),
+                Asset.ETH, new MarketPriceSample(timestamp, new BigDecimal("3000")),
+                Asset.USDT, new MarketPriceSample(timestamp, BigDecimal.ONE)));
     }
 
     private MarketPriceHistory history(Asset asset, String first, String second) {

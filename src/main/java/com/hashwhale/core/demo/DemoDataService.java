@@ -227,7 +227,7 @@ public class DemoDataService {
         User user = new User();
         user.setEmail(email);
         user.setPasswordHash(passwordHash);
-        user.setCountryCode(CountryCode.PH);
+        user.setCountryCode(CountryCode.SG);
         user.setKycStatus(KycStatus.VERIFIED);
         user.setCreatedAt(daysAgo(now, 150));
         return userRepository.save(user);

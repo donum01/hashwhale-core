@@ -67,7 +67,7 @@ class DemoDataSeederIntegrationTest {
         Long marketPointId = marketPricePointRepository.saveAndFlush(marketPoint).getId();
 
         ExchangeRatePoint exchangeRatePoint = new ExchangeRatePoint();
-        exchangeRatePoint.setQuoteCurrency(FiatCurrency.PHP);
+        exchangeRatePoint.setQuoteCurrency(FiatCurrency.SGD);
         exchangeRatePoint.setTimestamp(Instant.parse("2000-01-01T00:00:00Z"));
         exchangeRatePoint.setFiatPerUsd(new BigDecimal("55"));
         exchangeRatePoint.setSource(PriceSource.STATIC);
@@ -89,7 +89,7 @@ class DemoDataSeederIntegrationTest {
     private void assertDemoScenario(String rawPassword) {
         assertEquals(1, userRepository.count());
         User user = userRepository.findByEmail("demo@hashwhale.com").orElseThrow();
-        assertEquals(CountryCode.PH, user.getCountryCode());
+        assertEquals(CountryCode.SG, user.getCountryCode());
         assertEquals(KycStatus.VERIFIED, user.getKycStatus());
         assertTrue(passwordEncoder.matches(rawPassword, user.getPasswordHash()));
 

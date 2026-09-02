@@ -5,6 +5,8 @@ import com.hashwhale.core.entity.Asset;
 import com.hashwhale.core.entity.FiatCurrency;
 import com.hashwhale.core.repository.ExchangeRatePointRepository;
 import com.hashwhale.core.repository.MarketPricePointRepository;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -30,6 +32,7 @@ public class MarketDataCollector implements ApplicationRunner {
     private final MarketPricePointRepository marketPricePointRepository;
     private final ExchangeRatePointRepository exchangeRatePointRepository;
     private final PricingConfigurationProperties configuration;
+    private final Clock applicationClock;
     private final AtomicBoolean collectionInProgress = new AtomicBoolean();
 
     @Override
@@ -40,6 +43,7 @@ public class MarketDataCollector implements ApplicationRunner {
         try {
             seedMissingHistoryBeforeReady();
             seedExchangeRatesBeforeReady();
+            refreshLatestPointsIfStale();
         } catch (RuntimeException exception) {
             log.warn(
                     "Market-data startup seed failed; the application will continue starting. "
@@ -59,19 +63,45 @@ public class MarketDataCollector implements ApplicationRunner {
             return;
         }
         try {
-            CoinGeckoPriceSnapshot prices = withRateLimitBackoff(
-                    marketDataClient::fetchUsdPrices);
-            persistenceService.appendCurrentPrices(prices);
-
-            CoinGeckoExchangeRateSnapshot exchangeRates = withRateLimitBackoff(
-                    marketDataClient::fetchFiatPerUsdRates);
-            persistenceService.appendExchangeRates(exchangeRates);
+            collectAndPersistLatestPoints();
         } catch (RuntimeException exception) {
             log.warn("Market-data collection failed; locally stored history remains available: {}",
                     exception.getMessage());
         } finally {
             collectionInProgress.set(false);
         }
+    }
+
+    private void refreshLatestPointsIfStale() {
+        Instant freshnessCutoff = applicationClock.instant().minusMillis(configuration.getRefreshMs());
+        boolean stalePrice = Arrays.stream(Asset.values()).anyMatch(asset ->
+                marketPricePointRepository
+                        .findFirstByAssetAndQuoteCurrencyOrderByTimestampDesc(asset, FiatCurrency.USD)
+                        .map(point -> point.getTimestamp().isBefore(freshnessCutoff))
+                        .orElse(true));
+        boolean staleExchangeRate = Arrays.stream(FiatCurrency.values()).anyMatch(currency ->
+                exchangeRatePointRepository
+                        .findFirstByQuoteCurrencyOrderByTimestampDesc(currency)
+                        .map(point -> point.getTimestamp().isBefore(freshnessCutoff))
+                        .orElse(true));
+
+        if (!stalePrice && !staleExchangeRate) {
+            log.info("Stored market snapshots are fresh; skipping the startup refresh");
+            return;
+        }
+
+        log.info("Stored market snapshots are stale; collecting current prices before accepting requests");
+        collectAndPersistLatestPoints();
+    }
+
+    private void collectAndPersistLatestPoints() {
+        CoinGeckoPriceSnapshot prices = withRateLimitBackoff(
+                marketDataClient::fetchUsdPrices);
+        persistenceService.appendCurrentPrices(prices);
+
+        CoinGeckoExchangeRateSnapshot exchangeRates = withRateLimitBackoff(
+                marketDataClient::fetchFiatPerUsdRates);
+        persistenceService.appendExchangeRates(exchangeRates);
     }
 
     private void seedMissingHistoryBeforeReady() {

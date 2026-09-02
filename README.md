@@ -12,6 +12,7 @@ The companion frontend is available in [hashwhale-web](https://github.com/donum0
 - Flexible, 30-day, and 90-day Earn positions with daily reward accrual
 - Dashboard aggregation, loan-risk alerts, and rule-based recommendations
 - Background CoinGecko collector backed by local historical-price tables
+- Immediate startup refresh when the latest stored market snapshot is stale
 - Country-based fiat conversion for the USDT chart
 - OpenAPI documentation and a generated TypeScript contract for the frontend
 - Reusable, opt-in interview demo-data seeder
@@ -113,7 +114,7 @@ $env:COINGECKO_API_KEY = "your-demo-api-key"
 .\mvnw.cmd spring-boot:run
 ```
 
-The API starts at `http://localhost:8080`.
+The API starts at `http://localhost:8080`. If the newest stored price or fiat-rate snapshot is older than the configured five-minute refresh interval, the backend refreshes it immediately during startup and then continues the normal background schedule.
 
 ## Interview demo account
 
@@ -139,7 +140,7 @@ The seeded account contains three wallet balances, two loans, three Earn positio
 .\mvnw.cmd test
 ```
 
-The current suite contains 57 unit and integration tests. Tests use an in-memory H2 datasource and do not connect to the development MySQL container.
+The current suite contains 59 unit and integration tests. Tests use an in-memory H2 datasource and do not connect to the development MySQL container.
 
 Coverage includes:
 
