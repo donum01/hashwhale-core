@@ -4,10 +4,13 @@ import com.hashwhale.core.dto.ApiErrorResponse;
 import com.hashwhale.core.dto.CreateLoanRequest;
 import com.hashwhale.core.dto.LoanResponse;
 import com.hashwhale.core.entity.Loan;
+import com.hashwhale.core.entity.LoanStatus;
 import com.hashwhale.core.entity.User;
 import com.hashwhale.core.service.BorrowService;
 import com.hashwhale.core.service.ForbiddenException;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -15,10 +18,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
 import java.net.URI;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Slice;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,6 +35,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -99,16 +107,34 @@ public class BorrowController {
             @ApiResponse(
                     responseCode = "200",
                     description = "Loans returned",
+                    headers = {
+                            @Header(
+                                    name = "X-Has-More",
+                                    description = "Whether another batch is available",
+                                    schema = @Schema(type = "boolean")),
+                            @Header(
+                                    name = "X-Next-Cursor",
+                                    description = "Pass this value as beforeId to load the next batch",
+                                    schema = @Schema(type = "integer", format = "int64"))
+                    },
                     content = @Content(array = @ArraySchema(schema = @Schema(implementation = LoanResponse.class)))),
             @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
-    public ResponseEntity<List<LoanResponse>> getLoansForUser() {
+    public ResponseEntity<List<LoanResponse>> getLoansForUser(
+            @Parameter(description = "Maximum records to return", example = "10")
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int limit,
+            @Parameter(description = "Cursor returned by the previous response", example = "125")
+            @RequestParam(required = false) @Positive Long beforeId,
+            @Parameter(description = "Optional repeatable loan-status filter")
+            @RequestParam(name = "status", required = false) Set<LoanStatus> statuses) {
         User user = getAuthenticatedUser();
-        List<LoanResponse> loans = borrowService.getLoansForUser(user.getId())
+        Slice<Loan> loanSlice = borrowService.getLoansForUser(
+                user.getId(), statuses, beforeId, limit);
+        List<LoanResponse> loans = loanSlice.getContent()
                 .stream()
                 .map(this::toResponse)
                 .toList();
-        return ResponseEntity.ok(loans);
+        return historyResponse(loanSlice, loans);
     }
 
     private LoanResponse toResponse(Loan loan) {
@@ -121,6 +147,18 @@ public class BorrowController {
                 loan.getInterestRateApr(),
                 loan.getStatus(),
                 loan.getCreatedAt());
+    }
+
+    private ResponseEntity<List<LoanResponse>> historyResponse(
+            Slice<Loan> slice,
+            List<LoanResponse> body) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .header("X-Has-More", Boolean.toString(slice.hasNext()));
+        if (slice.hasNext() && !slice.getContent().isEmpty()) {
+            Loan last = slice.getContent().get(slice.getContent().size() - 1);
+            response.header("X-Next-Cursor", last.getId().toString());
+        }
+        return response.body(body);
     }
 
     private User getAuthenticatedUser() {

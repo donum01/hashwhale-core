@@ -24,7 +24,10 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +62,32 @@ public class EarnService {
     public List<EarnPosition> getPositions(Long userId) {
         validateUserId(userId);
         return earnPositionRepository.findByUserIdOrderByStartDateDescIdDesc(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public Slice<EarnPosition> getPositions(
+            Long userId,
+            Set<EarnPositionStatus> statuses,
+            Long beforeId,
+            int limit) {
+        validateUserId(userId);
+        validateHistoryRequest(beforeId, limit);
+        PageRequest pageRequest = PageRequest.of(0, limit);
+        boolean filtered = statuses != null && !statuses.isEmpty();
+
+        if (filtered && beforeId != null) {
+            return earnPositionRepository.findByUserIdAndStatusInAndIdLessThanOrderByIdDesc(
+                    userId, statuses, beforeId, pageRequest);
+        }
+        if (filtered) {
+            return earnPositionRepository.findByUserIdAndStatusInOrderByIdDesc(
+                    userId, statuses, pageRequest);
+        }
+        if (beforeId != null) {
+            return earnPositionRepository.findByUserIdAndIdLessThanOrderByIdDesc(
+                    userId, beforeId, pageRequest);
+        }
+        return earnPositionRepository.findByUserIdOrderByIdDesc(userId, pageRequest);
     }
 
     @Transactional(readOnly = true)
@@ -312,6 +341,15 @@ public class EarnService {
     private void validateRequired(Object value, String fieldName) {
         if (value == null || value instanceof String stringValue && stringValue.isBlank()) {
             throw new IllegalArgumentException(fieldName + " is required");
+        }
+    }
+
+    private void validateHistoryRequest(Long beforeId, int limit) {
+        if (beforeId != null && beforeId <= 0) {
+            throw new IllegalArgumentException("History cursor must be greater than zero");
+        }
+        if (limit < 1 || limit > 50) {
+            throw new IllegalArgumentException("History limit must be between 1 and 50");
         }
     }
 }

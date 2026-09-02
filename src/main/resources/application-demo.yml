@@ -1,0 +1,6 @@
+app:
+  demo-seed:
+    enabled: ${DEMO_SEED_ENABLED:false}
+    reset: ${DEMO_SEED_RESET:false}
+    email: ${DEMO_USER_EMAIL:demo@hashwhale.com}
+    password: "${DEMO_USER_PASSWORD:}"

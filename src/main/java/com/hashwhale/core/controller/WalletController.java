@@ -5,11 +5,14 @@ import com.hashwhale.core.dto.TransactionResponse;
 import com.hashwhale.core.dto.WalletBalanceResponse;
 import com.hashwhale.core.dto.WalletTransactionRequest;
 import com.hashwhale.core.entity.Transaction;
+import com.hashwhale.core.entity.TransactionType;
 import com.hashwhale.core.entity.User;
 import com.hashwhale.core.entity.WalletBalance;
 import com.hashwhale.core.service.ForbiddenException;
 import com.hashwhale.core.service.WalletService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -17,9 +20,14 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Positive;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Slice;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
@@ -27,6 +35,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -114,17 +123,35 @@ public class WalletController {
             @ApiResponse(
                     responseCode = "200",
                     description = "Transactions returned",
+                    headers = {
+                            @Header(
+                                    name = "X-Has-More",
+                                    description = "Whether another batch is available",
+                                    schema = @Schema(type = "boolean")),
+                            @Header(
+                                    name = "X-Next-Cursor",
+                                    description = "Pass this value as beforeId to load the next batch",
+                                    schema = @Schema(type = "integer", format = "int64"))
+                    },
                     content = @Content(array = @ArraySchema(
                             schema = @Schema(implementation = TransactionResponse.class)))),
             @ApiResponse(responseCode = "401", description = "Missing, invalid, or expired JWT")
     })
-    public ResponseEntity<List<TransactionResponse>> getTransactions() {
+    public ResponseEntity<List<TransactionResponse>> getTransactions(
+            @Parameter(description = "Maximum records to return", example = "10")
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int limit,
+            @Parameter(description = "Cursor returned by the previous response", example = "125")
+            @RequestParam(required = false) @Positive Long beforeId,
+            @Parameter(description = "Optional repeatable transaction-type filter")
+            @RequestParam(name = "type", required = false) Set<TransactionType> types) {
         User user = getAuthenticatedUser();
-        List<TransactionResponse> transactions = walletService.getTransactions(user.getId())
+        Slice<Transaction> transactionSlice = walletService.getTransactions(
+                user.getId(), types, beforeId, limit);
+        List<TransactionResponse> transactions = transactionSlice.getContent()
                 .stream()
                 .map(this::toTransactionResponse)
                 .toList();
-        return ResponseEntity.ok(transactions);
+        return historyResponse(transactionSlice, transactions);
     }
 
     private WalletBalanceResponse toBalanceResponse(WalletBalance balance) {
@@ -141,6 +168,18 @@ public class WalletController {
                 transaction.getAmount(),
                 transaction.getStatus(),
                 transaction.getCreatedAt());
+    }
+
+    private ResponseEntity<List<TransactionResponse>> historyResponse(
+            Slice<Transaction> slice,
+            List<TransactionResponse> body) {
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .header("X-Has-More", Boolean.toString(slice.hasNext()));
+        if (slice.hasNext() && !slice.getContent().isEmpty()) {
+            Transaction last = slice.getContent().get(slice.getContent().size() - 1);
+            response.header("X-Next-Cursor", last.getId().toString());
+        }
+        return response.body(body);
     }
 
     private User getAuthenticatedUser() {

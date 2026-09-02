@@ -1,5 +1,6 @@
 package com.hashwhale.core.config;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -30,7 +31,13 @@ class SecurityCorsIntegrationTest {
                         .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST"))
                 .andExpect(status().isOk())
                 .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, FRONTEND_ORIGIN))
-                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
+                .andExpect(header().string(
+                        HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+                        containsString("X-Has-More")))
+                .andExpect(header().string(
+                        HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS,
+                        containsString("X-Next-Cursor")));
     }
 
     @Test

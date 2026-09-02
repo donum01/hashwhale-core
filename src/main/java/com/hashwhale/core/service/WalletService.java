@@ -11,7 +11,10 @@ import com.hashwhale.core.repository.UserRepository;
 import com.hashwhale.core.repository.WalletBalanceRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,6 +72,32 @@ public class WalletService {
         return transactionRepository.findByUserIdOrderByCreatedAtDescIdDesc(userId);
     }
 
+    @Transactional(readOnly = true)
+    public Slice<Transaction> getTransactions(
+            Long userId,
+            Set<TransactionType> types,
+            Long beforeId,
+            int limit) {
+        validateUserId(userId);
+        validateHistoryRequest(beforeId, limit);
+        PageRequest pageRequest = PageRequest.of(0, limit);
+        boolean filtered = types != null && !types.isEmpty();
+
+        if (filtered && beforeId != null) {
+            return transactionRepository.findByUserIdAndTypeInAndIdLessThanOrderByIdDesc(
+                    userId, types, beforeId, pageRequest);
+        }
+        if (filtered) {
+            return transactionRepository.findByUserIdAndTypeInOrderByIdDesc(
+                    userId, types, pageRequest);
+        }
+        if (beforeId != null) {
+            return transactionRepository.findByUserIdAndIdLessThanOrderByIdDesc(
+                    userId, beforeId, pageRequest);
+        }
+        return transactionRepository.findByUserIdOrderByIdDesc(userId, pageRequest);
+    }
+
     private User findUser(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
@@ -107,6 +136,15 @@ public class WalletService {
     private void validateUserId(Long userId) {
         if (userId == null || userId <= 0) {
             throw new IllegalArgumentException("User id must be greater than zero");
+        }
+    }
+
+    private void validateHistoryRequest(Long beforeId, int limit) {
+        if (beforeId != null && beforeId <= 0) {
+            throw new IllegalArgumentException("History cursor must be greater than zero");
+        }
+        if (limit < 1 || limit > 50) {
+            throw new IllegalArgumentException("History limit must be between 1 and 50");
         }
     }
 }

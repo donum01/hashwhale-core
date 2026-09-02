@@ -16,7 +16,10 @@ import com.hashwhale.core.repository.WalletBalanceRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -162,6 +165,35 @@ public class BorrowService {
         return loanRepository.findByUserId(userId);
     }
 
+    @Transactional(readOnly = true)
+    public Slice<Loan> getLoansForUser(
+            Long userId,
+            Set<LoanStatus> statuses,
+            Long beforeId,
+            int limit) {
+        validateRequired(userId, "User id");
+        validateHistoryRequest(beforeId, limit);
+        if (!userRepository.existsById(userId)) {
+            throw new IllegalArgumentException("User not found: " + userId);
+        }
+
+        PageRequest pageRequest = PageRequest.of(0, limit);
+        boolean filtered = statuses != null && !statuses.isEmpty();
+        if (filtered && beforeId != null) {
+            return loanRepository.findByUserIdAndStatusInAndIdLessThanOrderByIdDesc(
+                    userId, statuses, beforeId, pageRequest);
+        }
+        if (filtered) {
+            return loanRepository.findByUserIdAndStatusInOrderByIdDesc(
+                    userId, statuses, pageRequest);
+        }
+        if (beforeId != null) {
+            return loanRepository.findByUserIdAndIdLessThanOrderByIdDesc(
+                    userId, beforeId, pageRequest);
+        }
+        return loanRepository.findByUserIdOrderByIdDesc(userId, pageRequest);
+    }
+
     /**
      * Returns LTV as a percentage: borrowed USD value / collateral USD value * 100.
      */
@@ -247,6 +279,15 @@ public class BorrowService {
     private void validateRequired(Object value, String fieldName) {
         if (value == null) {
             throw new IllegalArgumentException(fieldName + " is required");
+        }
+    }
+
+    private void validateHistoryRequest(Long beforeId, int limit) {
+        if (beforeId != null && beforeId <= 0) {
+            throw new IllegalArgumentException("History cursor must be greater than zero");
+        }
+        if (limit < 1 || limit > 50) {
+            throw new IllegalArgumentException("History limit must be between 1 and 50");
         }
     }
 }
